@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Approval Admin Panel</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* Login */
+  #loginBox {
+    max-width: 380px;
+    margin: 100px auto;
+    background: #1e293b;
+    padding: 32px 28px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  #loginBox h1 { font-size: 22px; margin-bottom: 20px; text-align: center; }
+  #loginBox input {
+    width: 100%;
+    padding: 12px 14px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  #loginBox input:focus { outline: none; border-color: #3b82f6; }
+  #loginBox button {
+    width: 100%;
+    padding: 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #loginBox button:hover { background: #2563eb; }
+  #loginErr { color: #f87171; font-size: 13px; margin-top: 10px; text-align: center; }
+
+  /* Main */
+  #mainPanel { display: none; }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .header h1 { font-size: 22px; }
+  .logout-btn {
+    padding: 8px 16px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: #1e293b;
+    padding: 16px;
+    border-radius: 10px;
+    border-left: 4px solid #3b82f6;
+  }
+  .stat-card.pending { border-color: #f59e0b; }
+  .stat-card.approved { border-color: #10b981; }
+  .stat-card.rejected { border-color: #ef4444; }
+  .stat-card .label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+  .stat-card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+
+  /* Filters */
+  .filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .filters button {
+    padding: 8px 16px;
+    background: #1e293b;
+    color: #cbd5e1;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .filters button.active {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+  }
+  .refresh-btn {
+    margin-left: auto;
+    padding: 8px 14px;
+    background: #334155;
+    color: #e2e8f0;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  /* Table */
+  .table-wrap {
+    background: #1e293b;
+    border-radius: 10px;
+    overflow: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid #334155;
+  }
+  th {
+    background: #0f172a;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    position: sticky;
+    top: 0;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #243247; }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge.pending { background: #78350f; color: #fbbf24; }
+  .badge.approved { background: #064e3b; color: #34d399; }
+  .badge.rejected { background: #7f1d1d; color: #f87171; }
+
+  .key-cell {
+    font-family: monospace;
+    font-size: 11px;
+    color: #64748b;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .key-cell:hover { color: #3b82f6; }
+
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-sm {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    color: white;
+  }
+  .btn-approve { background: #10b981; }
+  .btn-approve:hover { background: #059669; }
+  .btn-reject { background: #f59e0b; }
+  .btn-reject:hover { background: #d97706; }
+  .btn-delete { background: #ef4444; }
+  .btn-delete:hover { background: #dc2626; }
+  .btn-sm:disabled { opacity: .4; cursor: not-allowed; }
+
+  .empty {
+    text-align: center;
+    padding: 40px;
+    color: #64748b;
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 13px;
+    color: #94a3b8;
+  }
+  .pagination button {
+    padding: 6px 12px;
+    background: #1e293b;
+    color: #cbd5e1;
+    border: 1px solid #334155;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all .3s;
+    font-size: 13px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { border-left: 4px solid #10b981; }
+  .toast.err { border-left: 4px solid #ef4444; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginBox">
+  <h1>🔐 Admin Login</h1>
+  <input type="password" id="tokenInput" placeholder="Enter ADMIN_TOKEN" autocomplete="off" />
+  <button onclick="login()">Login</button>
+  <div id="loginErr"></div>
+</div>
+
+<!-- MAIN PANEL -->
+<div id="mainPanel" class="container">
+  <div class="header">
+    <h1>📱 Device Approval Admin</h1>
+    <button class="logout-btn" onclick="logout()">Logout</button>
+  </div>
+
+  <div class="stats" id="statsBox">
+    <div class="stat-card pending"><div class="label">Pending</div><div class="value" id="statPending">-</div></div>
+    <div class="stat-card approved"><div class="label">Approved</div><div class="value" id="statApproved">-</div></div>
+    <div class="stat-card rejected"><div class="label">Rejected</div><div class="value" id="statRejected">-</div></div>
+    <div class="stat-card"><div class="label">Total</div><div class="value" id="statTotal">-</div></div>
+  </div>
+
+  <div class="filters">
+    <button data-filter="" class="active">All</button>
+    <button data-filter="pending">Pending</button>
+    <button data-filter="approved">Approved</button>
+    <button data-filter="rejected">Rejected</button>
+    <button class="refresh-btn" onclick="loadAll()">🔄 Refresh</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Brand / Model</th>
+          <th>Key</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="6" class="empty">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    <button id="prevBtn" onclick="changePage(-1)">← Prev</button>
+    <span id="pageInfo">Page 1</span>
+    <button id="nextBtn" onclick="changePage(1)">Next →</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIG — Render URL এখানে বসান
+// ─────────────────────────────────────────────
+const API_BASE = ''; // একই সার্ভে হোস্ট করলে খালি; আলাদা হলে পূর্ণ URL দিন
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let adminToken = localStorage.getItem('admin_token') || '';
+let currentFilter = '';
+let currentPage = 1;
+let totalItems = 0;
+const PAGE_LIMIT = 50;
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+
+function toast(msg, type = 'ok') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => { t.className = 'toast ' + type; }, 2500);
+}
+
+function authHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'x-admin-token': adminToken,
+  };
+}
+
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: authHeaders() };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API_BASE + path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'request_failed');
+  return data;
+}
+
+// ─────────────────────────────────────────────
+// LOGIN
+// ─────────────────────────────────────────────
+async function login() {
+  const token = $('tokenInput').value.trim();
+  if (!token) return;
+
+  try {
+    const res = await fetch(API_BASE + '/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) throw new Error('Wrong token');
+
+    adminToken = token;
+    localStorage.setItem('admin_token', token);
+    showMain();
+  } catch (e) {
+    $('loginErr').textContent = '❌ Wrong token, please try again';
+  }
+}
+
+function logout() {
+  localStorage.removeItem('admin_token');
+  adminToken = '';
+  $('mainPanel').style.display = 'none';
+  $('loginBox').style.display = 'block';
+  $('tokenInput').value = '';
+  $('loginErr').textContent = '';
+}
+
+function showMain() {
+  $('loginBox').style.display = 'none';
+  $('mainPanel').style.display = 'block';
+  loadAll();
+}
+
+// ─────────────────────────────────────────────
+// LOAD DATA
+// ─────────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadStats(), loadDevices()]);
+}
+
+async function loadStats() {
+  try {
+    const s = await api('/api/admin/stats');
+    $('statPending').textContent = s.pending;
+    $('statApproved').textContent = s.approved;
+    $('statRejected').textContent = s.rejected;
+    $('statTotal').textContent = s.total;
+  } catch (e) {
+    if (e.message === 'forbidden') return handleAuthError();
+  }
+}
+
+async function loadDevices() {
+  const tbody = $('tableBody');
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">Loading...</td></tr>';
+
+  try {
+    const q = new URLSearchParams({
+      page: currentPage,
+      limit: PAGE_LIMIT,
+    });
+    if (currentFilter) q.set('status', currentFilter);
+
+    const data = await api('/api/admin/devices?' + q.toString());
+    totalItems = data.total;
+
+    if (!data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No devices found</td></tr>';
+    } else {
+      tbody.innerHTML = data.items.map(renderRow).join('');
+    }
+
+    updatePagination();
+  } catch (e) {
+    if (e.message === 'forbidden') return handleAuthError();
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function renderRow(d) {
+  const created = new Date(d.createdAt).toLocaleString();
+  const canApprove = d.status !== 'approved';
+  const canReject = d.status !== 'rejected';
+
+  return `
+    <tr>
+      <td>${escapeHtml(d.name)}</td>
+      <td>${escapeHtml(d.brand || '')} / ${escapeHtml(d.model || '')}</td>
+      <td class="key-cell" title="${escapeHtml(d.secretKey)}" onclick="copyKey('${escapeHtml(d.secretKey)}')">${escapeHtml(d.secretKey.slice(0, 12))}…</td>
+      <td><span class="badge ${d.status}">${d.status}</span></td>
+      <td>${created}</td>
+      <td>
+        <div class="actions">
+          <button class="btn-sm btn-approve" ${canApprove ? '' : 'disabled'} onclick="setStatus('${escapeHtml(d.secretKey)}','approve')">✓</button>
+          <button class="btn-sm btn-reject" ${canReject ? '' : 'disabled'} onclick="setStatus('${escapeHtml(d.secretKey)}','reject')">✕</button>
+          <button class="btn-sm btn-delete" onclick="delDevice('${escapeHtml(d.secretKey)}','${escapeHtml(d.name)}')">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function copyKey(key) {
+  navigator.clipboard.writeText(key).then(() => toast('Key copied'));
+}
+
+// ─────────────────────────────────────────────
+// ACTIONS
+// ─────────────────────────────────────────────
+async function setStatus(secretKey, action) {
+  try {
+    await api('/api/admin/status', 'POST', { secretKey, action });
+    toast(action === 'approve' ? '✅ Approved' : '⛔ Rejected');
+    loadAll();
+  } catch (e) {
+    if (e.message === 'forbidden') return handleAuthError();
+    toast('Failed: ' + e.message, 'err');
+  }
+}
+
+async function delDevice(secretKey, name) {
+  if (!confirm(`Delete device of "${name}"? This cannot be undone.`)) return;
+  try {
+    await api('/api/admin/delete', 'POST', { secretKey });
+    toast('🗑 Deleted');
+    loadAll();
+  } catch (e) {
+    if (e.message === 'forbidden') return handleAuthError();
+    toast('Failed: ' + e.message, 'err');
+  }
+}
+
+function handleAuthError() {
+  toast('Session expired, please login again', 'err');
+  logout();
+}
+
+// ─────────────────────────────────────────────
+// FILTER & PAGINATION
+// ─────────────────────────────────────────────
+document.querySelectorAll('.filters button[data-filter]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filters button[data-filter]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    currentPage = 1;
+    loadDevices();
+  });
+});
+
+function changePage(delta) {
+  const newPage = currentPage + delta;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_LIMIT));
+  if (newPage < 1 || newPage > totalPages) return;
+  currentPage = newPage;
+  loadDevices();
+}
+
+function updatePagination() {
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_LIMIT));
+  $('pageInfo').textContent = `Page ${currentPage} / ${totalPages} (${totalItems} devices)`;
+  $('prevBtn').disabled = currentPage <= 1;
+  $('nextBtn').disabled = currentPage >= totalPages;
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  if (adminToken) {
+    // টোকেন আছে — সঠিক কিনা যাচাই করে ঢুকি
+    fetch(API_BASE + '/api/admin/stats', { headers: authHeaders() })
+      .then(res => {
+        if (res.ok) showMain();
+        else logout();
+      })
+      .catch(() => logout());
+  }
+  $('tokenInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') login();
+  });
+});
+</script>
+</body>
+</html>
