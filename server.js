@@ -2,6 +2,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 
@@ -258,6 +259,15 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
     console.error('GET /api/admin/stats error:', err);
     res.status(500).json({ error: 'server_error' });
   }
+});
+
+// ─────────────────────────────────────────────
+// STATIC FILES & ADMIN PANEL
+// ─────────────────────────────────────────────
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // ─────────────────────────────────────────────
