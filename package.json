@@ -1,26 +1,21 @@
 {
-  "name": "approval-admin-server",
+  "name": "approval-gate-backend",
   "version": "1.0.0",
-  "description": "Device approval system with MongoDB backend for Render deployment",
+  "description": "Backend API for Android Approval Gate System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "dev": "nodemon server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "mongoose": "^8.5.1",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongoose": "^7.5.0"
   },
-  "keywords": [
-    "approval",
-    "admin",
-    "mongodb",
-    "render"
-  ],
-  "author": "",
+  "engines": {
+    "node": ">=14.x"
+  },
+  "author": "Nirob",
   "license": "MIT"
 }
