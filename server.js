@@ -43,11 +43,14 @@ const Device = mongoose.model('Device', deviceSchema);
 // 1. Check Status (অ্যাপ ওপেন হলে চেক করবে)
 app.get('/api/check-status/:deviceId', async (req, res) => {
     const { deviceId } = req.params;
+    console.log(`[APP REQUEST] Check Status for Device: ${deviceId}`); // লগ যুক্ত করা হলো
+    
     try {
         let device = await Device.findOne({ deviceId });
         
         // যদি নতুন ডিভাইস হয়, তবে ডেটাবেসে pending অবস্থায় সেভ করবে
         if (!device) {
+            console.log(`[NEW DEVICE] Registering new device: ${deviceId}`);
             device = new Device({ 
                 deviceId: deviceId, 
                 hasName: false, 
@@ -70,6 +73,8 @@ app.get('/api/check-status/:deviceId', async (req, res) => {
 // 2. Request Approval (Smali-এর ApprovalGate$4 থেকে নাম সাবমিট হলে)
 app.post('/api/request-approval', async (req, res) => {
     const { deviceId, name } = req.body;
+    console.log(`[APP REQUEST] Name Submit - Device: ${deviceId}, Name: ${name}`); // লগ যুক্ত করা হলো
+    
     try {
         // চেক করবে নামটি আগেই কেউ নিয়েছে কিনা
         const existingName = await Device.findOne({ name: name.trim() });
@@ -83,6 +88,7 @@ app.post('/api/request-approval', async (req, res) => {
             device.hasName = true;
             device.approvalStatus = 'pending'; // নাম দিলে pending থাকবে
             await device.save();
+            console.log(`[APP SUCCESS] Name updated for device: ${deviceId}`);
             res.status(200).json({ success: true });
         } else {
             res.status(404).json({ error: 'Device not found' });
