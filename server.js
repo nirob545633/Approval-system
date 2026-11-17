@@ -1,284 +1,141 @@
-// server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+require('dotenv').config(); // লোকাল টেস্টিংয়ের জন্য, Render-এ এনভায়রনমেন্ট ভ্যারিয়েবল কাজ করবে
 
 const app = express();
-
-// ─────────────────────────────────────────────
-// MIDDLEWARE
-// ─────────────────────────────────────────────
 app.use(cors());
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json());
 
-// ─────────────────────────────────────────────
-// ENV
-// ─────────────────────────────────────────────
-const MONGODB_URI = process.env.MONGODB_URI;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'CHANGE_ME_ADMIN_TOKEN';
-const PORT = process.env.PORT || 4000;
+// MongoDB Connection (Render Environment Variable থেকে MONGO_URI নিবে)
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+}).then(() => console.log('MongoDB Connected Successfully'))
+  .catch(err => console.log('MongoDB Connection Error: ', err));
 
-if (!MONGODB_URI) {
-  console.error('FATAL: MONGODB_URI environment variable missing');
-  process.exit(1);
-}
-
-// ─────────────────────────────────────────────
-// DB
-// ─────────────────────────────────────────────
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => {
-    console.error('MongoDB connect error:', err.message);
-    process.exit(1);
-  });
-
-const DeviceSchema = new mongoose.Schema(
-  {
-    secretKey: { type: String, unique: true, required: true, index: true },
-    name: { type: String, required: true },
-    brand: String,
-    model: String,
-    device: String,
-    status: {
-      type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending',
-      index: true,
-    },
-  },
-  { timestamps: true }
-);
-
-const Device = mongoose.model('Device', DeviceSchema);
-
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-function requireAdmin(req, res, next) {
-  const token = req.headers['x-admin-token'] || req.query.token;
-  if (!token || token !== ADMIN_TOKEN) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
-  next();
-}
-
-function sanitize(str, max = 64) {
-  if (typeof str !== 'string') return '';
-  return str.trim().slice(0, max);
-}
-
-// ─────────────────────────────────────────────
-// PUBLIC API (app ব্যবহার করে)
-// ─────────────────────────────────────────────
-
-// হেলথ চেক
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, time: Date.now() });
+// Database Schema
+const deviceSchema = new mongoose.Schema({
+    deviceId: { type: String, required: true, unique: true },
+    name: { type: String, default: '' },
+    hasName: { type: Boolean, default: false },
+    approvalStatus: { type: String, default: 'pending' }, // 'pending', 'approved', 'rejected'
+    createdAt: { type: Date, default: Date.now }
 });
 
-// ১. স্ট্যাটাস চেক — অ্যাপ প্রথমে এটাই কল করবে
-// GET /api/approval/:secretKey
-app.get('/api/approval/:secretKey', async (req, res) => {
-  try {
-    const key = sanitize(req.params.secretKey, 128);
-    if (!key) return res.json({ status: 'not_found' });
+const Device = mongoose.model('Device', deviceSchema);
 
-    const device = await Device.findOne({ secretKey: key }).lean();
-    if (!device) return res.json({ status: 'not_found' });
+// ==========================================
+// USER APP APIs (Smali থেকে কল হবে)
+// ==========================================
 
-    res.json({
-      status: device.status,
-      name: device.name,
-      updatedAt: device.updatedAt,
-    });
-  } catch (err) {
-    console.error('GET /api/approval error:', err);
-    res.status(500).json({ status: 'error' });
-  }
-});
-
-// ২. নতুন অনুমোদনের আবেদন জমা
-// POST /api/approval
-// body: { secretKey, name, brand, model, device }
-app.post('/api/approval', async (req, res) => {
-  try {
-    const secretKey = sanitize(req.body.secretKey, 128);
-    const name = sanitize(req.body.name, 64);
-    const brand = sanitize(req.body.brand, 32);
-    const model = sanitize(req.body.model, 64);
-    const device = sanitize(req.body.device, 64);
-
-    if (!secretKey || !name) {
-      return res.status(400).json({ error: 'secretKey and name required' });
+// 1. Check Status (অ্যাপ ওপেন হলে চেক করবে)
+app.get('/api/check-status/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    try {
+        let device = await Device.findOne({ deviceId });
+        
+        // যদি নতুন ডিভাইস হয়, তবে ডেটাবেসে pending অবস্থায় সেভ করবে
+        if (!device) {
+            device = new Device({ 
+                deviceId: deviceId, 
+                hasName: false, 
+                approvalStatus: 'pending' 
+            });
+            await device.save();
+        }
+        
+        // Smali কোডে ঠিক এই ৩টি জিনিস এক্সপেক্ট করে
+        res.json({
+            deviceId: device.deviceId,
+            approvalStatus: device.approvalStatus,
+            hasName: device.hasName
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
     }
+});
 
-    // আগে থেকে থাকলে সেটাই রিটার্ন
-    const existing = await Device.findOne({ secretKey });
-    if (existing) {
-      return res.json({
-        status: existing.status,
-        name: existing.name,
-        alreadyExists: true,
-      });
+// 2. Request Approval (Smali-এর ApprovalGate$4 থেকে নাম সাবমিট হলে)
+app.post('/api/request-approval', async (req, res) => {
+    const { deviceId, name } = req.body;
+    try {
+        // চেক করবে নামটি আগেই কেউ নিয়েছে কিনা (আপনার Smali কোডে এই এরর টোস্টটি আছে)
+        const existingName = await Device.findOne({ name: name.trim() });
+        if (existingName && existingName.deviceId !== deviceId) {
+            // যদি নাম মিলে যায় কিন্তু ডিভাইস আইডি ভিন্ন হয়, তবে 400 এরর পাঠাবে
+            return res.status(400).json({ error: 'Name already taken' }); 
+        }
+
+        let device = await Device.findOne({ deviceId });
+        if (device) {
+            device.name = name.trim();
+            device.hasName = true;
+            device.approvalStatus = 'pending'; // নাম সাবমিট করলে স্ট্যাটাস pending থাকবে
+            await device.save();
+            res.status(200).json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Device not found' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
     }
+});
 
-    const created = await Device.create({
-      secretKey,
-      name,
-      brand,
-      model,
-      device,
-      status: 'pending',
-    });
+// ==========================================
+// ADMIN DASHBOARD APIs
+// ==========================================
 
-    res.json({
-      status: created.status,
-      name: created.name,
-      id: created._id,
-    });
-  } catch (err) {
-    // duplicate key race condition
-    if (err.code === 11000) {
-      const existing = await Device.findOne({
-        secretKey: sanitize(req.body.secretKey, 128),
-      });
-      return res.json({
-        status: existing ? existing.status : 'pending',
-        alreadyExists: true,
-      });
+// Admin Middleware (Render Environment Variable থেকে ADMIN_PASSWORD চেক করবে)
+const checkAdminAuth = (req, res, next) => {
+    const adminPass = req.headers['x-admin-password'];
+    if (adminPass === process.env.ADMIN_PASSWORD) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized Access! Wrong Password.' });
     }
-    console.error('POST /api/approval error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+};
 
-// ─────────────────────────────────────────────
-// ADMIN API (admin.html ব্যবহার করবে)
-// ─────────────────────────────────────────────
-
-// লগইন যাচাই
-// POST /api/admin/login { token }
-app.post('/api/admin/login', (req, res) => {
-  const token = req.body && req.body.token;
-  if (!token || token !== ADMIN_TOKEN) {
-    return res.status(403).json({ error: 'wrong_token' });
-  }
-  res.json({ ok: true });
-});
-
-// সব ডিভাইস লিস্ট (ফিল্টার + পেজিনেশন)
-// GET /api/admin/devices?status=pending&page=1&limit=50
-app.get('/api/admin/devices', requireAdmin, async (req, res) => {
-  try {
-    const status = req.query.status;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(200, parseInt(req.query.limit) || 50);
-    const skip = (page - 1) * limit;
-
-    const filter = {};
-    if (['pending', 'approved', 'rejected'].includes(status)) {
-      filter.status = status;
-    }
-
-    const [items, total] = await Promise.all([
-      Device.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Device.countDocuments(filter),
-    ]);
-
-    res.json({ items, total, page, limit });
-  } catch (err) {
-    console.error('GET /api/admin/devices error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// স্ট্যাটাস আপডেট
-// POST /api/admin/status { secretKey, action: approve|reject|pending }
-app.post('/api/admin/status', requireAdmin, async (req, res) => {
-  try {
-    const secretKey = sanitize(req.body.secretKey, 128);
-    const action = req.body.action;
-
-    const map = {
-      approve: 'approved',
-      reject: 'rejected',
-      pending: 'pending',
-    };
-    const status = map[action];
-    if (!secretKey || !status) {
-      return res.status(400).json({ error: 'invalid_input' });
-    }
-
-    const updated = await Device.findOneAndUpdate(
-      { secretKey },
-      { status },
-      { new: true }
-    );
-    if (!updated) return res.status(404).json({ error: 'not_found' });
-
-    res.json({ ok: true, status: updated.status });
-  } catch (err) {
-    console.error('POST /api/admin/status error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// ডিভাইস ডিলিট
-// POST /api/admin/delete { secretKey }
-app.post('/api/admin/delete', requireAdmin, async (req, res) => {
-  try {
-    const secretKey = sanitize(req.body.secretKey, 128);
-    if (!secretKey) return res.status(400).json({ error: 'invalid_input' });
-    await Device.deleteOne({ secretKey });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('POST /api/admin/delete error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// স্ট্যাটস
-// GET /api/admin/stats
-app.get('/api/admin/stats', requireAdmin, async (req, res) => {
-  try {
-    const [pending, approved, rejected, total] = await Promise.all([
-      Device.countDocuments({ status: 'pending' }),
-      Device.countDocuments({ status: 'approved' }),
-      Device.countDocuments({ status: 'rejected' }),
-      Device.countDocuments({}),
-    ]);
-    res.json({ pending, approved, rejected, total });
-  } catch (err) {
-    console.error('GET /api/admin/stats error:', err);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// ─────────────────────────────────────────────
-// STATIC FILES & ADMIN PANEL
-// ─────────────────────────────────────────────
-// 🟢 এখানে public ফোল্ডারের বদলে সরাসরি মেইন ফোল্ডারের admin.html দেখানো হচ্ছে
+// Admin Page Serve
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin.html'));
+    res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
-// ─────────────────────────────────────────────
-// 404 fallback
-// ─────────────────────────────────────────────
-app.use((req, res) => {
-  res.status(404).json({ error: 'not_found' });
+// Get All Users Data
+app.get('/api/admin/devices', checkAdminAuth, async (req, res) => {
+    try {
+        const devices = await Device.find().sort({ createdAt: -1 }); // নতুনগুলো আগে দেখাবে
+        res.json(devices);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch data' });
+    }
 });
 
-// ─────────────────────────────────────────────
-// START
-// ─────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server listening on 0.0.0.0:${PORT}`);
+// Change Status (Approve / Reject)
+app.post('/api/admin/update-status', checkAdminAuth, async (req, res) => {
+    const { deviceId, status } = req.body;
+    try {
+        await Device.findOneAndUpdate({ deviceId }, { approvalStatus: status });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Update failed' });
+    }
+});
+
+// Delete a User
+app.post('/api/admin/delete', checkAdminAuth, async (req, res) => {
+    const { deviceId } = req.body;
+    try {
+        await Device.findOneAndDelete({ deviceId });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Delete failed' });
+    }
+});
+
+// Start Server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Approval Gate Server is running on port ${PORT}`);
 });
