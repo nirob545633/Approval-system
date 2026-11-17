@@ -264,10 +264,9 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
 // ─────────────────────────────────────────────
 // STATIC FILES & ADMIN PANEL
 // ─────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'public')));
-
+// 🟢 এখানে public ফোল্ডারের বদলে সরাসরি মেইন ফোল্ডারের admin.html দেখানো হচ্ছে
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+  res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
 // ─────────────────────────────────────────────
