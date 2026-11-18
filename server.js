@@ -60,11 +60,11 @@ if (!mongoURI) {
 const deviceSchema = new mongoose.Schema({
     deviceId: { type: String, required: true, unique: true, trim: true, index: true },
     name: { type: String, default: '', trim: true },
-    nameLower: { type: String, default: '', trim: true, index: true },
+    nameLower: { type: String, default: '', trim: true },
     hasName: { type: Boolean, default: false },
-    approvalStatus: { type: String, default: 'pending' }, // 'pending', 'approved', 'rejected'
+    approvalStatus: { type: String, default: 'pending' },
 
-    // ===== Device info (নতুন) =====
+    // ===== Device info =====
     model: { type: String, default: '' },
     brand: { type: String, default: '' },
     manufacturer: { type: String, default: '' },
@@ -79,11 +79,6 @@ const deviceSchema = new mongoose.Schema({
 
     createdAt: { type: Date, default: Date.now }
 });
-
-// deviceId uniqueness — case-insensitive
-deviceSchema.index({ deviceId: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
-// name uniqueness — case-insensitive
-deviceSchema.index({ nameLower: 1 }, { unique: false, collation: { locale: 'en', strength: 2 } });
 
 const Device = mongoose.model('Device', deviceSchema);
 
@@ -118,13 +113,8 @@ function nameLower(v) {
 function isValidName(v) {
     if (!v) return false;
     if (v.length < 1 || v.length > 60) return false;
-    // শুধু whitespace দিয়ে নাম দেওয়া যাবে না
     if (normalizeName(v).length === 0) return false;
     return true;
-}
-
-function escapeRegex(s) {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function pickString(v, max) {
@@ -169,7 +159,6 @@ app.get('/api/check-status/:deviceId', async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Invalid deviceId' });
         }
 
-        // query string থেকে device info (smali থেকে পাঠানো যাবে)
         const info = extractDeviceInfo(req.query || {});
 
         let device = await Device.findOne({ deviceId });
@@ -194,7 +183,6 @@ app.get('/api/check-status/:deviceId', async (req, res, next) => {
                 }
             }
         } else {
-            // existing device — info আপডেট
             Object.assign(device, info);
             device.lastSeenAt = new Date();
             await device.save();
@@ -213,7 +201,7 @@ app.get('/api/check-status/:deviceId', async (req, res, next) => {
     }
 });
 
-// 2. Request Approval (Smali-এর ApprovalGate$4 থেকে নাম সাবমিট হলে)
+// 2. Request Approval
 app.post('/api/request-approval', async (req, res, next) => {
     try {
         const body = req.body || {};
@@ -230,22 +218,13 @@ app.post('/api/request-approval', async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Invalid name' });
         }
 
-        // নামটি আগেই কেউ নিয়েছে কিনা — case-insensitive, অন্য deviceId বাদ
-        const existingName = await Device.findOne({
-            nameLower: nLower,
-            deviceId: { $ne: deviceId }
-        });
-        if (existingName) {
-            return res.status(409).json({ success: false, error: 'Name already taken' });
-        }
+        // ✅ নাম uniqueness চেক বাদ — একই নাম একাধিক ডিভাইসে এলাউ
 
         let device = await Device.findOne({ deviceId });
         if (!device) {
-            // নতুন ডিভাইস হলে আগে তৈরি করি
             device = new Device({ deviceId, hasName: false, approvalStatus: 'pending' });
         }
 
-        // same device আগেই একই নাম দিলে — conflict নয়, আপডেট হবে
         device.name = name;
         device.nameLower = nLower;
         device.hasName = true;
@@ -257,10 +236,6 @@ app.post('/api/request-approval', async (req, res, next) => {
         console.log(`[APP SUCCESS] Name updated for device: ${deviceId}`);
         return res.status(200).json({ success: true });
     } catch (err) {
-        // duplicate key error (race-এ একই nameLower দুবার এলে)
-        if (err && err.code === 11000) {
-            return res.status(409).json({ success: false, error: 'Name already taken' });
-        }
         console.error("Request Approval Error:", err);
         return next(err);
     }
@@ -270,7 +245,6 @@ app.post('/api/request-approval', async (req, res, next) => {
 // ADMIN DASHBOARD APIs
 // ==========================================
 
-// Admin Middleware
 const checkAdminAuth = (req, res, next) => {
     try {
         const adminPass = req.headers['x-admin-password'];
@@ -340,7 +314,7 @@ app.post('/api/admin/delete', checkAdminAuth, async (req, res, next) => {
 });
 
 // ==========================================
-// HEALTH CHECK (Render-এর জন্য)
+// HEALTH CHECK
 // ==========================================
 app.get('/health', (req, res) => {
     res.json({
