@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 
-// dotenv যদি ইন্সটল না থাকে, তবুও যেন Render-এ ক্র্যাশ না করে তাই try-catch দেওয়া হলো
+// dotenv যদি ইন্সটল না থাকে, তবুও যেন Render-এ ক্র্যাশ না করে তাই try-catch দেওয়া হলো
 try {
     require('dotenv').config();
 } catch (err) {
@@ -12,12 +12,12 @@ try {
 
 const app = express();
 
-// Render reverse proxy-র পিছনে সঠিক client IP পাওয়ার জন্য
+// Render reverse proxy-র পিছনে সঠিক client IP পাওয়ার জন্য
 app.set('trust proxy', 1);
 
 app.use(cors());
-app.use(express.json({ limit: '32kb' }));
-app.use(express.urlencoded({ extended: true, limit: '32kb' }));
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
 // ==================== SAFETY NETS (সার্ভার যেন না মরে) ====================
 process.on('uncaughtException', (err) => {
@@ -33,7 +33,6 @@ const mongoURI = process.env.MONGO_URI;
 if (!mongoURI) {
     console.error("Fatal Error: MONGO_URI is missing in Environment Variables!");
 } else {
-    // পুরনো ফোন / ধীর নেটওয়ার্কে দ্রুত fail না করে অপেক্ষা করবে
     mongoose.set('strictQuery', true);
     mongoose.connect(mongoURI, {
         serverSelectionTimeoutMS: 15000,
@@ -61,23 +60,49 @@ if (!mongoURI) {
 const deviceSchema = new mongoose.Schema({
     deviceId: { type: String, required: true, unique: true, trim: true, index: true },
     name: { type: String, default: '', trim: true },
+    nameLower: { type: String, default: '', trim: true, index: true },
     hasName: { type: Boolean, default: false },
     approvalStatus: { type: String, default: 'pending' }, // 'pending', 'approved', 'rejected'
+
+    // ===== Device info (নতুন) =====
+    model: { type: String, default: '' },
+    brand: { type: String, default: '' },
+    manufacturer: { type: String, default: '' },
+    osVersion: { type: String, default: '' },
+    sdkInt: { type: Number, default: 0 },
+    batteryLevel: { type: Number, default: -1 },
+    totalMemory: { type: Number, default: 0 },
+    appVersion: { type: String, default: '' },
+    appVersionCode: { type: Number, default: 0 },
+    language: { type: String, default: '' },
+    lastSeenAt: { type: Date, default: Date.now },
+
     createdAt: { type: Date, default: Date.now }
 });
+
+// deviceId uniqueness — case-insensitive
+deviceSchema.index({ deviceId: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+// name uniqueness — case-insensitive
+deviceSchema.index({ nameLower: 1 }, { unique: false, collation: { locale: 'en', strength: 2 } });
 
 const Device = mongoose.model('Device', deviceSchema);
 
 // ==================== HELPERS ====================
 function normalizeDeviceId(v) {
     if (v === undefined || v === null) return '';
-    return String(v).trim();
+    try {
+        return String(v).normalize('NFC').trim();
+    } catch (e) {
+        return String(v).trim();
+    }
 }
 
 function isValidDeviceId(v) {
     if (!v) return false;
     if (v.length < 3 || v.length > 128) return false;
     if (v.toLowerCase() === 'unknown_device') return false;
+    if (v.toLowerCase() === 'unknown') return false;
+    if (v === '9774d56d682e549c') return false;
     return true;
 }
 
@@ -86,14 +111,48 @@ function normalizeName(v) {
     return String(v).replace(/\s+/g, ' ').trim();
 }
 
+function nameLower(v) {
+    return normalizeName(v).toLowerCase();
+}
+
 function isValidName(v) {
     if (!v) return false;
     if (v.length < 1 || v.length > 60) return false;
+    // শুধু whitespace দিয়ে নাম দেওয়া যাবে না
+    if (normalizeName(v).length === 0) return false;
     return true;
 }
 
 function escapeRegex(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function pickString(v, max) {
+    if (v === undefined || v === null) return '';
+    const s = String(v).trim();
+    return s.length > max ? s.substring(0, max) : s;
+}
+
+function pickNumber(v, def) {
+    if (v === undefined || v === null) return def;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : def;
+}
+
+function extractDeviceInfo(body) {
+    const b = body || {};
+    return {
+        model: pickString(b.model, 80),
+        brand: pickString(b.brand, 80),
+        manufacturer: pickString(b.manufacturer, 80),
+        osVersion: pickString(b.osVersion, 40),
+        sdkInt: pickNumber(b.sdkInt, 0),
+        batteryLevel: pickNumber(b.batteryLevel, -1),
+        totalMemory: pickNumber(b.totalMemory, 0),
+        appVersion: pickString(b.appVersion, 40),
+        appVersionCode: pickNumber(b.appVersionCode, 0),
+        language: pickString(b.language, 20)
+    };
 }
 
 // ==========================================
@@ -110,20 +169,23 @@ app.get('/api/check-status/:deviceId', async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Invalid deviceId' });
         }
 
+        // query string থেকে device info (smali থেকে পাঠানো যাবে)
+        const info = extractDeviceInfo(req.query || {});
+
         let device = await Device.findOne({ deviceId });
 
-        // যদি নতুন ডিভাইস হয়, তবে ডেটাবেসে pending অবস্থায় সেভ করবে
         if (!device) {
             console.log(`[NEW DEVICE] Registering new device: ${deviceId}`);
             device = new Device({
                 deviceId: deviceId,
                 hasName: false,
-                approvalStatus: 'pending'
+                approvalStatus: 'pending',
+                ...info,
+                lastSeenAt: new Date()
             });
             try {
                 await device.save();
             } catch (saveErr) {
-                // race condition: একই সময়ে দুটি request এলে duplicate key error হতে পারে
                 if (saveErr && saveErr.code === 11000) {
                     device = await Device.findOne({ deviceId });
                     if (!device) throw saveErr;
@@ -131,14 +193,19 @@ app.get('/api/check-status/:deviceId', async (req, res, next) => {
                     throw saveErr;
                 }
             }
+        } else {
+            // existing device — info আপডেট
+            Object.assign(device, info);
+            device.lastSeenAt = new Date();
+            await device.save();
         }
 
-        // কিছু কারণে ডেটা অসম্পূর্ণ হলে 안전한 ডিফল্ট
         return res.json({
             success: true,
             deviceId: device.deviceId,
             approvalStatus: device.approvalStatus || 'pending',
-            hasName: !!device.hasName
+            hasName: !!device.hasName,
+            name: device.name || ''
         });
     } catch (err) {
         console.error("Check Status Error:", err);
@@ -152,6 +219,8 @@ app.post('/api/request-approval', async (req, res, next) => {
         const body = req.body || {};
         const deviceId = normalizeDeviceId(body.deviceId);
         const name = normalizeName(body.name);
+        const nLower = nameLower(name);
+        const info = extractDeviceInfo(body);
         console.log(`[APP REQUEST] Name Submit - Device: ${deviceId}, Name: ${name}`);
 
         if (!isValidDeviceId(deviceId)) {
@@ -161,9 +230,9 @@ app.post('/api/request-approval', async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Invalid name' });
         }
 
-        // নামটি আগেই কেউ নিয়েছে কিনা (case-insensitive, trim করা)
+        // নামটি আগেই কেউ নিয়েছে কিনা — case-insensitive, অন্য deviceId বাদ
         const existingName = await Device.findOne({
-            name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
+            nameLower: nLower,
             deviceId: { $ne: deviceId }
         });
         if (existingName) {
@@ -172,18 +241,26 @@ app.post('/api/request-approval', async (req, res, next) => {
 
         let device = await Device.findOne({ deviceId });
         if (!device) {
-            // নতুন ডিভাইস হলে আগে তৈরি করি (check-status বাদ পড়লেও কাজ করবে)
+            // নতুন ডিভাইস হলে আগে তৈরি করি
             device = new Device({ deviceId, hasName: false, approvalStatus: 'pending' });
         }
 
+        // same device আগেই একই নাম দিলে — conflict নয়, আপডেট হবে
         device.name = name;
+        device.nameLower = nLower;
         device.hasName = true;
-        device.approvalStatus = 'pending'; // নাম দিলে pending থাকবে
-        await device.save();
+        device.approvalStatus = 'pending';
+        Object.assign(device, info);
+        device.lastSeenAt = new Date();
 
+        await device.save();
         console.log(`[APP SUCCESS] Name updated for device: ${deviceId}`);
         return res.status(200).json({ success: true });
     } catch (err) {
+        // duplicate key error (race-এ একই nameLower দুবার এলে)
+        if (err && err.code === 11000) {
+            return res.status(409).json({ success: false, error: 'Name already taken' });
+        }
         console.error("Request Approval Error:", err);
         return next(err);
     }
@@ -214,7 +291,7 @@ app.get('/admin', (req, res) => {
 // Get All Users Data
 app.get('/api/admin/devices', checkAdminAuth, async (req, res, next) => {
     try {
-        const devices = await Device.find().sort({ createdAt: -1 }).lean();
+        const devices = await Device.find().sort({ lastSeenAt: -1 }).lean();
         return res.json(devices);
     } catch (err) {
         console.error("Admin Fetch Error:", err);
@@ -288,7 +365,6 @@ app.use((err, req, res, next) => {
 
 // Start Server
 const PORT = process.env.PORT || 3000;
-// Render-এ পোর্ট বাইন্ড করার জন্য 0.0.0.0 দেওয়া হলো
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Approval Gate Server is running on port ${PORT}`);
 });
