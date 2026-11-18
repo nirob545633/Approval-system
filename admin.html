@@ -43,7 +43,7 @@
 
     <!-- Dashboard Section (Hidden by Default) -->
     <div id="dashboardSection" class="hidden min-h-screen p-4 md:p-8">
-        <div class="max-w-6xl mx-auto">
+        <div class="max-w-7xl mx-auto">
             <!-- Header -->
             <div class="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-sm mb-6">
                 <div class="flex items-center gap-4 mb-4 md:mb-0">
@@ -73,6 +73,7 @@
                             <tr class="bg-gray-50 text-gray-600 text-sm uppercase tracking-wider">
                                 <th class="p-4 font-semibold">নাম</th>
                                 <th class="p-4 font-semibold">ডিভাইস আইডি</th>
+                                <th class="p-4 font-semibold">হোয়াটসঅ্যাপ নম্বর</th>
                                 <th class="p-4 font-semibold">স্ট্যাটাস</th>
                                 <th class="p-4 font-semibold">তারিখ</th>
                                 <th class="p-4 font-semibold text-right">অ্যাকশন</th>
@@ -148,7 +149,7 @@
             tbody.innerHTML = '';
 
             if(devices.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-500">কোনো ইউজার ডাটা পাওয়া যায়নি</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-500">কোনো ইউজার ডাটা পাওয়া যায়নি</td></tr>`;
                 return;
             }
 
@@ -169,6 +170,7 @@
                 tr.innerHTML = `
                     <td class="p-4 font-medium text-gray-900">${device.name || '<span class="text-gray-400 italic">নাম দেয়নি</span>'}</td>
                     <td class="p-4 font-mono text-gray-500 text-xs">${device.deviceId}</td>
+                    <td class="p-4 text-gray-700">${device.whatsappNumber || '<span class="text-gray-400 italic">ডিফল্ট</span>'}</td>
                     <td class="p-4">${statusBadge}</td>
                     <td class="p-4 text-gray-500">${date}</td>
                     <td class="p-4 text-right space-x-2">
