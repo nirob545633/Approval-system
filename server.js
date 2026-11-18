@@ -31,6 +31,7 @@ const deviceSchema = new mongoose.Schema({
     name: { type: String, default: '' },
     hasName: { type: Boolean, default: false },
     approvalStatus: { type: String, default: 'pending' }, // 'pending', 'approved', 'rejected'
+    whatsappNumber: { type: String, default: '+8801705891010' }, // নতুন যোগ করা হলো
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -62,7 +63,8 @@ app.get('/api/check-status/:deviceId', async (req, res) => {
         res.json({
             deviceId: device.deviceId,
             approvalStatus: device.approvalStatus,
-            hasName: device.hasName
+            hasName: device.hasName,
+            whatsappNumber: device.whatsappNumber // নতুন যোগ করা হলো
         });
     } catch (err) {
         console.error("Check Status Error:", err);
@@ -95,6 +97,39 @@ app.post('/api/request-approval', async (req, res) => {
         }
     } catch (err) {
         console.error("Request Approval Error:", err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// 3. Update WhatsApp Number (নতুন যোগ করা হলো)
+app.post('/api/update-number', async (req, res) => {
+    const { deviceId, whatsappNumber } = req.body;
+    console.log(`[APP REQUEST] Update Number - Device: ${deviceId}, Number: ${whatsappNumber}`);
+    
+    try {
+        if (!deviceId || !whatsappNumber) {
+            return res.status(400).json({ error: 'deviceId and whatsappNumber are required' });
+        }
+
+        let device = await Device.findOne({ deviceId });
+        if (device) {
+            device.whatsappNumber = whatsappNumber.trim();
+            await device.save();
+            console.log(`[APP SUCCESS] Number updated for device: ${deviceId}`);
+            res.status(200).json({ success: true, whatsappNumber: device.whatsappNumber });
+        } else {
+            // যদি ডিভাইস না থাকে, তবে নতুন ডিভাইস হিসেবে সেভ করবে
+            device = new Device({ 
+                deviceId: deviceId, 
+                whatsappNumber: whatsappNumber.trim(),
+                approvalStatus: 'pending' 
+            });
+            await device.save();
+            console.log(`[NEW DEVICE] Created with number for device: ${deviceId}`);
+            res.status(200).json({ success: true, whatsappNumber: device.whatsappNumber });
+        }
+    } catch (err) {
+        console.error("Update Number Error:", err);
         res.status(500).json({ error: 'Server error' });
     }
 });
