@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Approval Gate</title>
-    
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome -->
@@ -19,6 +19,14 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
+        .truncate-cell {
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: inline-block;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body class="text-gray-800">
@@ -31,11 +39,12 @@
             </div>
             <h2 class="text-2xl font-bold mb-2">এডমিন লগইন</h2>
             <p class="text-gray-500 mb-6 text-sm">অ্যাপের এক্সেস কন্ট্রোল প্যানেল</p>
-            
-            <input type="password" id="adminPassword" placeholder="এডমিন পাসওয়ার্ড দিন" 
+
+            <input type="password" id="adminPassword" placeholder="এডমিন পাসওয়ার্ড দিন"
+                onkeydown="if(event.key==='Enter'){login();}"
                 class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 transition-all">
-            
-            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95">
+
+            <button id="loginBtn" onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95">
                 লগইন করুন <i class="fa-solid fa-arrow-right-to-bracket ml-2"></i>
             </button>
         </div>
@@ -65,6 +74,42 @@
                 </div>
             </div>
 
+            <!-- Stats + Filters -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                    <p class="text-xs text-gray-500 mb-1">মোট ইউজার</p>
+                    <p id="statTotal" class="text-2xl font-bold text-gray-900">0</p>
+                </div>
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                    <p class="text-xs text-gray-500 mb-1">অ্যাপ্রুভড</p>
+                    <p id="statApproved" class="text-2xl font-bold text-green-600">0</p>
+                </div>
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                    <p class="text-xs text-gray-500 mb-1">পেন্ডিং</p>
+                    <p id="statPending" class="text-2xl font-bold text-orange-500">0</p>
+                </div>
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                    <p class="text-xs text-gray-500 mb-1">রিজেক্টেড</p>
+                    <p id="statRejected" class="text-2xl font-bold text-red-600">0</p>
+                </div>
+            </div>
+
+            <!-- Search + Filter -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 flex flex-col md:flex-row gap-3">
+                <div class="relative flex-1">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="text" id="searchInput" oninput="applyFilters()" placeholder="নাম বা ডিভাইস আইডি দিয়ে খুঁজুন..."
+                        class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <select id="statusFilter" onchange="applyFilters()"
+                    class="px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                    <option value="all">সব স্ট্যাটাস</option>
+                    <option value="approved">অ্যাপ্রুভড</option>
+                    <option value="pending">পেন্ডিং</option>
+                    <option value="rejected">রিজেক্টেড</option>
+                </select>
+            </div>
+
             <!-- Table Card -->
             <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
                 <div class="overflow-x-auto">
@@ -90,15 +135,41 @@
 
     <script>
         let currentPassword = localStorage.getItem('adminPass') || '';
+        let allDevices = [];
+        let busy = false;
 
         // Auto login check if password exists in local storage
-        if(currentPassword) {
+        if (currentPassword) {
             fetchDevices();
         }
 
+        // ---------- Helpers ----------
+        function esc(str) {
+            if (str === undefined || str === null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatDate(dateStr) {
+            try {
+                if (!dateStr) return '—';
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return '—';
+                return d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+            } catch (e) {
+                return '—';
+            }
+        }
+
+        // ---------- Auth ----------
         async function login() {
+            if (busy) return;
             const passInput = document.getElementById('adminPassword').value;
-            if(!passInput) {
+            if (!passInput) {
                 Swal.fire({ icon: 'warning', title: 'পাসওয়ার্ড দিন', text: 'লগইন করতে পাসওয়ার্ড প্রয়োজন' });
                 return;
             }
@@ -107,16 +178,31 @@
         }
 
         function logout() {
-            currentPassword = '';
-            localStorage.removeItem('adminPass');
-            document.getElementById('adminPassword').value = '';
-            document.getElementById('dashboardSection').classList.add('hidden');
-            document.getElementById('loginSection').classList.remove('hidden');
+            Swal.fire({
+                title: 'লগআউট করবেন?',
+                text: 'আপনি কি সত্যিই লগআউট করতে চান?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#6b7280',
+                confirmButtonText: 'হ্যাঁ, লগআউট',
+                cancelButtonText: 'বাতিল'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    currentPassword = '';
+                    localStorage.removeItem('adminPass');
+                    document.getElementById('adminPassword').value = '';
+                    document.getElementById('dashboardSection').classList.add('hidden');
+                    document.getElementById('loginSection').classList.remove('hidden');
+                }
+            });
         }
 
+        // ---------- Data Fetch ----------
         async function fetchDevices() {
+            if (busy) return;
+            busy = true;
             try {
-                // Show loading
                 Swal.fire({ title: 'লোড হচ্ছে...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
 
                 const response = await fetch('/api/admin/devices', {
@@ -124,38 +210,93 @@
                 });
 
                 if (response.status === 401) {
+                    currentPassword = '';
+                    localStorage.removeItem('adminPass');
                     Swal.fire({ icon: 'error', title: 'ভুল পাসওয়ার্ড', text: 'দয়া করে সঠিক এডমিন পাসওয়ার্ড দিন' });
-                    logout();
+                    document.getElementById('dashboardSection').classList.add('hidden');
+                    document.getElementById('loginSection').classList.remove('hidden');
                     return;
                 }
 
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
                 const data = await response.json();
-                
+                allDevices = Array.isArray(data) ? data : [];
+
                 // Save pass for future reloads and switch sections
                 localStorage.setItem('adminPass', currentPassword);
                 document.getElementById('loginSection').classList.add('hidden');
                 document.getElementById('dashboardSection').classList.remove('hidden');
-                
-                renderTable(data);
-                Swal.close();
 
+                updateStats();
+                applyFilters();
             } catch (error) {
                 Swal.fire({ icon: 'error', title: 'সার্ভার এরর', text: 'সার্ভারের সাথে কানেক্ট করা যাচ্ছে না!' });
+            } finally {
+                busy = false;
+                Swal.close();
             }
         }
 
+        // ---------- Stats ----------
+        function updateStats() {
+            const total = allDevices.length;
+            const approved = allDevices.filter(d => d.approvalStatus === 'approved').length;
+            const pending = allDevices.filter(d => d.approvalStatus === 'pending').length;
+            const rejected = allDevices.filter(d => d.approvalStatus === 'rejected').length;
+
+            document.getElementById('statTotal').textContent = total;
+            document.getElementById('statApproved').textContent = approved;
+            document.getElementById('statPending').textContent = pending;
+            document.getElementById('statRejected').textContent = rejected;
+        }
+
+        // ---------- Filters ----------
+        function applyFilters() {
+            const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+            const status = document.getElementById('statusFilter').value;
+
+            const filtered = allDevices.filter(device => {
+                const name = (device.name || '').toLowerCase();
+                const deviceId = (device.deviceId || '').toLowerCase();
+                const matchQuery = !q || name.includes(q) || deviceId.includes(q);
+                const matchStatus = status === 'all' || device.approvalStatus === status;
+                return matchQuery && matchStatus;
+            });
+
+            renderTable(filtered);
+        }
+
+        // ---------- Render ----------
         function renderTable(devices) {
             const tbody = document.getElementById('deviceTableBody');
             tbody.innerHTML = '';
 
-            if(devices.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-500">কোনো ইউজার ডাটা পাওয়া যায়নি</td></tr>`;
+            if (!devices || devices.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-500">কোনো ইউজার ডাটা পাওয়া যায়নি</td></tr>`;
                 return;
             }
 
             devices.forEach(device => {
-                const date = new Date(device.createdAt).toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' });
-                
+                const date = formatDate(device.createdAt);
+                const nameRaw = device.name || '';
+                const deviceIdRaw = device.deviceId || '';
+                const deviceKey = device._id ? String(device._id) : deviceIdRaw;
+
+                const nameDisplay = nameRaw
+                    ? `<span class="truncate-cell" title="${esc(nameRaw)}">${esc(nameRaw)}</span>`
+                    : `<span class="text-gray-400 italic">নাম দেয়নি</span>`;
+
+                const deviceDisplay = deviceIdRaw
+                    ? `<span class="truncate-cell font-mono text-gray-500 text-xs" title="${esc(deviceIdRaw)}">${esc(deviceIdRaw)}</span>`
+                    : `<span class="text-gray-400 italic">—</span>`;
+
+                const waDisplay = device.whatsappNumber
+                    ? esc(device.whatsappNumber)
+                    : `<span class="text-gray-400 italic">ডিফল্ট</span>`;
+
                 let statusBadge = '';
                 if (device.approvalStatus === 'approved') {
                     statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold"><i class="fa-solid fa-check mr-1"></i> অ্যাপ্রুভড</span>`;
@@ -167,20 +308,21 @@
 
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-gray-50 transition-colors";
+
                 tr.innerHTML = `
-                    <td class="p-4 font-medium text-gray-900">${device.name || '<span class="text-gray-400 italic">নাম দেয়নি</span>'}</td>
-                    <td class="p-4 font-mono text-gray-500 text-xs">${device.deviceId}</td>
-                    <td class="p-4 text-gray-700">${device.whatsappNumber || '<span class="text-gray-400 italic">ডিফল্ট</span>'}</td>
+                    <td class="p-4 font-medium text-gray-900">${nameDisplay}</td>
+                    <td class="p-4">${deviceDisplay}</td>
+                    <td class="p-4 text-gray-700">${waDisplay}</td>
                     <td class="p-4">${statusBadge}</td>
-                    <td class="p-4 text-gray-500">${date}</td>
+                    <td class="p-4 text-gray-500">${esc(date)}</td>
                     <td class="p-4 text-right space-x-2">
-                        <button onclick="updateStatus('${device.deviceId}', 'approved')" class="w-8 h-8 rounded-lg bg-green-50 text-green-600 hover:bg-green-500 hover:text-white transition-colors" title="Approve">
+                        <button onclick="updateStatus('${esc(deviceKey)}', 'approved')" class="w-8 h-8 rounded-lg bg-green-50 text-green-600 hover:bg-green-500 hover:text-white transition-colors" title="Approve">
                             <i class="fa-solid fa-check"></i>
                         </button>
-                        <button onclick="updateStatus('${device.deviceId}', 'rejected')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-500 hover:text-white transition-colors" title="Reject">
+                        <button onclick="updateStatus('${esc(deviceKey)}', 'rejected')" class="w-8 h-8 rounded-lg bg-red-50 text-red-600 hover:bg-red-500 hover:text-white transition-colors" title="Reject">
                             <i class="fa-solid fa-xmark"></i>
                         </button>
-                        <button onclick="deleteDevice('${device.deviceId}')" class="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-800 hover:text-white transition-colors ml-2" title="Delete">
+                        <button onclick="deleteDevice('${esc(deviceKey)}')" class="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-800 hover:text-white transition-colors ml-2" title="Delete">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
                     </td>
@@ -189,22 +331,31 @@
             });
         }
 
-        async function updateStatus(deviceId, status) {
+        // ---------- Actions ----------
+        async function updateStatus(deviceKey, status) {
+            if (busy) return;
+            // deviceKey হতে পারে Mongo _id অথবা deviceId — সার্ভার যেটাই হোক, deviceId লাগবে
+            const target = allDevices.find(d => String(d._id) === String(deviceKey) || String(d.deviceId) === String(deviceKey));
+            if (!target) {
+                Swal.fire('এরর', 'ডিভাইস পাওয়া যায়নি', 'error');
+                return;
+            }
+
             try {
                 const response = await fetch('/api/admin/update-status', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'x-admin-password': currentPassword
                     },
-                    body: JSON.stringify({ deviceId, status })
+                    body: JSON.stringify({ deviceId: target.deviceId, status })
                 });
 
-                if(response.ok) {
+                if (response.ok) {
                     Swal.fire({
                         icon: 'success',
                         title: 'সফল!',
-                        text: `ইউজার স্ট্যাটাস ${status === 'approved' ? 'অ্যাপ্রুভ' : 'রিজেক্ট'} করা হয়েছে।`,
+                        text: `ইউজার স্ট্যাটাস ${status === 'approved' ? 'অ্যাপ্রুভ' : 'রিজেক্ট'} করা হয়েছে।`,
                         timer: 1500,
                         showConfirmButton: false
                     });
@@ -213,11 +364,17 @@
                     throw new Error('Update failed');
                 }
             } catch (error) {
-                Swal.fire('এরর', 'স্ট্যাটাস আপডেট করা যায়নি', 'error');
+                Swal.fire('এরর', 'স্ট্যাটাস আপডেট করা যায়নি', 'error');
             }
         }
 
-        function deleteDevice(deviceId) {
+        function deleteDevice(deviceKey) {
+            const target = allDevices.find(d => String(d._id) === String(deviceKey) || String(d.deviceId) === String(deviceKey));
+            if (!target) {
+                Swal.fire('এরর', 'ডিভাইস পাওয়া যায়নি', 'error');
+                return;
+            }
+
             Swal.fire({
                 title: 'আপনি কি নিশ্চিত?',
                 text: "এই ইউজারের ডাটা চিরতরে মুছে যাবে!",
@@ -232,19 +389,21 @@
                     try {
                         const response = await fetch('/api/admin/delete', {
                             method: 'POST',
-                            headers: { 
+                            headers: {
                                 'Content-Type': 'application/json',
                                 'x-admin-password': currentPassword
                             },
-                            body: JSON.stringify({ deviceId })
+                            body: JSON.stringify({ deviceId: target.deviceId })
                         });
 
-                        if(response.ok) {
-                            Swal.fire('ডিলিট হয়েছে!', 'ইউজার ডাটা মুছে ফেলা হয়েছে।', 'success');
+                        if (response.ok) {
+                            Swal.fire('ডিলিট হয়েছে!', 'ইউজার ডাটা মুছে ফেলা হয়েছে।', 'success');
                             fetchDevices();
+                        } else {
+                            throw new Error('Delete failed');
                         }
                     } catch (error) {
-                        Swal.fire('এরর', 'ইউজার ডিলিট করা যায়নি', 'error');
+                        Swal.fire('এরর', 'ইউজার ডিলিট করা যায়নি', 'error');
                     }
                 }
             });
